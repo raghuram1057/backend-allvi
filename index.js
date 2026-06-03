@@ -9,8 +9,9 @@ const app = express();
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
+app.options('*', cors());
 
 // Setup handling sizes limits dynamically across systems models layers
 app.use(express.json({ limit: '50mb' }));
