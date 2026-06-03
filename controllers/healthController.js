@@ -8,11 +8,11 @@ const HealthController = {
      */
     submitDailyCheckin: async (req, res) => {
         try {
-            const { 
-                energy_score, mood_score, sleep_score, stress_score, 
-                diet_compliance, symptoms_reported, condition_data, free_text 
+            const {
+                energy_score, mood_score, sleep_score, stress_score,
+                diet_compliance, symptoms_reported, condition_data, free_text
             } = req.body;
-            
+
             const patientId = req.user.id; // Retrieved directly via auth token mapping definitions
             const checkinDate = new Date().toISOString().split('T')[0];
 
@@ -53,14 +53,14 @@ const HealthController = {
     /**
      * AI Extraction Endpoint for standalone incoming laboratory files mapping loops.
      */
-    uploadLabReport: async (req, res) => { 
+    uploadLabReport: async (req, res) => {
         try {
             if (!req.file) return res.status(400).json({ success: false, error: "Missing required report file attachment upload reference." });
             const patientId = req.user.id;
 
             // 1. Log incoming tracking context footprint safely inside lab_uploads
             const storagePath = `lab-uploads/${patientId}/${Date.now()}_${req.file.originalname}`;
-            
+
             // Execute storage transaction context call to your private bucket structure
             const { error: uploadErr } = await supabase.storage
                 .from('lab-uploads')
@@ -76,7 +76,7 @@ const HealthController = {
                     file_name: req.file.originalname,
                     file_type: req.file.mimetype.split('/')[1],
                     file_size_bytes: req.file.size,
-                    upload_status: 'virus_scanned' 
+                    upload_status: 'virus_scanned'
                 }])
                 .select('*')
                 .single();
@@ -110,32 +110,86 @@ const HealthController = {
      */
     confirmLabResults: async (req, res) => {
         try {
-            const { test_date, loinc_code, display_name, value_quantity, value_unit, reference_range_low, reference_range_high } = req.body;
-            const patientId = req.user.id;
+            // 1. Grab the payload from Phase1Review.jsx
+            const { test_date, biomarkers, lab_upload_id } = req.body;
+            console.log("📥 Incoming Review Payload:", req.body);
 
-            const { data, error } = await supabase
+            const patientId = req.user?.id || req.body.patientId;
+
+            if (!biomarkers || Object.keys(biomarkers).length === 0) {
+                return res.status(400).json({ success: false, error: "No biomarkers provided to save." });
+            }
+
+            // 2. Map the frontend data safely without destroying zeros or bounds
+            const rowsToInsert = Object.entries(biomarkers).map(([key, info]) => {
+
+                // FIX 1: Safely parse numbers so '0' doesn't become 'null'
+                const parsedValue = parseFloat(info.value);
+                const finalValue = !isNaN(parsedValue) ? parsedValue : null;
+
+                // FIX 2: Use the exact schema fields the AI passed through first
+                let low = parseFloat(info.reference_range_low);
+                let high = parseFloat(info.reference_range_high);
+
+                // Fallback ONLY if the AI missed them but we have a hyphenated string
+                if (isNaN(low) && isNaN(high) && info.ref_range && typeof info.ref_range === 'string') {
+                    const parts = info.ref_range.split('-');
+                    if (parts.length === 2) {
+                        low = parseFloat(parts[0].trim());
+                        high = parseFloat(parts[1].trim());
+                    }
+                }
+
+                // Protect the CHECK constraints: fall back to 'normal' and 'green' if missing
+                const validInterpretations = ['normal', 'low', 'high', 'critical_low', 'critical_high'];
+                const interpretation = validInterpretations.includes(info.interpretation) ? info.interpretation : 'normal';
+
+                const validStatuses = ['green', 'amber', 'red'];
+                const allvi_status = validStatuses.includes(info.allvi_status) ? info.allvi_status : 'green';
+
+                return {
+                    patient_id: patientId,                                     // NOT NULL
+                    sampled_at: test_date || new Date().toISOString().split('T')[0], // NOT NULL
+                    display_name: info.label || key,                           // NOT NULL
+
+                    lab_upload_id: lab_upload_id || null,
+                    loinc_code: info.loinc_code || null,
+
+                    value_quantity: finalValue,                                // numeric(10,4)
+                    value_unit: info.unit || null,
+
+                    reference_range_low: !isNaN(low) ? low : null,             // numeric(10,4)
+                    reference_range_high: !isNaN(high) ? high : null,          // numeric(10,4)
+                    reference_range_unit: info.unit || null,
+
+                    // 🛡️ Strict schema constraint requirements
+                    fhir_resource_type: 'Observation',
+                    fhir_status: 'final',
+                    entry_method: 'upload_parsed',
+                    interpretation: interpretation,
+                    allvi_status: allvi_status,
+                    clinician_verified: false
+                };
+            });
+
+            // 3. Bulk insert the exact array into the table
+            const { data, error } = await supabaseAdmin
                 .from('lab_results')
-                .insert([{
-                    patient_id: patientId,
-                    sampled_at: test_date,
-                    loinc_code: loinc_code || null,
-                    display_name: display_name,
-                    value_quantity: parseFloat(value_quantity),
-                    value_unit: value_unit,
-                    reference_range_low: parseFloat(reference_range_low),
-                    reference_range_high: parseFloat(reference_range_high),
-                    entry_method: 'upload_parsed'
-                }])
+                .insert(rowsToInsert)
                 .select('*');
 
-            if (error) throw error;
+            if (error) {
+                console.error("❌ SQL INSERT ERROR:", error.message);
+                throw error;
+            }
 
             return res.status(200).json({ success: true, data });
+
         } catch (err) {
+            console.error("❌ CONFIRM RESULTS CATCH ERROR:", err.message);
             return res.status(500).json({ success: false, error: err.message });
         }
     },
-
     /**
      * Processes full onboarding form submissions, saving metadata into public.intake_forms 
      * and saving accompanying files inside public.lab_uploads schema mappings.
@@ -145,13 +199,13 @@ const HealthController = {
         console.log("📎 Accompanying Form Upload File Buffer:", req.file);
 
         const patientId = req.user.id; // Extracted safely via requireAuth context mapping definitions
-        
+
         try {
             const {
                 fullName, phone, dob, gender, location,
-                conditions, conditionOther, 
+                conditions, conditionOther,
                 symptomsEnergy, symptomsDigestion, symptomsMental, symptomsSleep, symptomsOther,
-                symptomsOtherText, worstSymptoms, 
+                symptomsOtherText, worstSymptoms,
                 takingMedication, medicationDetails, medicationDuration, supplements,
                 dietaryChanges, dietOther, stressLevel, sleepQuality, exercise, exerciseType,
                 topGoals, topHelp, anythingElse, commTime
@@ -295,7 +349,7 @@ const HealthController = {
                 allvi_id: patientId,
                 intakeId: intakeRecord.id,
                 uploadTrackId: uploadRecordId,
-                parsedData: aiParsedReportData 
+                parsedData: aiParsedReportData
             });
 
         } catch (err) {

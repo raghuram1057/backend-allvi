@@ -88,7 +88,7 @@ const enrollPatient = async (req, res) => {
            🚀 EMAIL DISPATCH LAYER: Deployed Vercel Core Target Link
            ========================================================== */
         const productionBaseUrl = 'https://clinic-test-ten.vercel.app';
-        const magicActivationLink = `${productionBaseUrl}/activate`;
+        const magicActivationLink = `${productionBaseUrl}`;
 
         const transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',

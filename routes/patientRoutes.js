@@ -26,7 +26,7 @@ router.post(
     upload.single('labReport'), // 🚀 Captures the 'labReport' multi-part file binary data streams
     healthController.submitOnboardingIntake
 );
-router.post('/labs/confirm', requireAuth, healthController.confirmLabResults);
+router.post('/confirm-results', requireAuth, healthController.confirmLabResults);
 
 // Synchronization Tasks Control Matrix Enforcements
 router.get('/sync/tally', requireAuth, syncController.syncPastTallySubmissions);
