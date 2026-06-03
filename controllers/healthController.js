@@ -16,7 +16,7 @@ const HealthController = {
             const patientId = req.user.id; // Retrieved directly via auth token mapping definitions
             const checkinDate = new Date().toISOString().split('T')[0];
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseAdmin
                 .from('daily_checkins')
                 .upsert([{
                     patient_id: patientId,

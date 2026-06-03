@@ -5,6 +5,7 @@ const multer = require('multer');
 // Controller Definitions Import Loops
 const authController = require('../controllers/authController');
 const healthController = require('../controllers/healthController');
+const patientController = require('../controllers/patientController');
 const syncController = require('../controllers/syncController');
 
 // Guard Middlewares Imports Definitions
@@ -30,5 +31,8 @@ router.post('/confirm-results', requireAuth, healthController.confirmLabResults)
 
 // Synchronization Tasks Control Matrix Enforcements
 router.get('/sync/tally', requireAuth, syncController.syncPastTallySubmissions);
+
+router.get('/dashboard/:patientId', requireAuth, patientController.getDashboardData);
+router.get('/insights/:patientId', requireAuth, patientController.getInsights);
 
 module.exports = router;
