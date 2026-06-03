@@ -2,7 +2,7 @@ const { supabase, supabaseAdmin } = require('../config/supabase');
 const logService = require('../services/logService');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer'); 
+const nodemailer = require('nodemailer');
 
 const enrollPatient = async (req, res) => {
     console.log("📥 Incoming Enrollment Payload:", req.body);
@@ -31,13 +31,13 @@ const enrollPatient = async (req, res) => {
         const generatedAllviId = `Allvi-${uniqueSeed}`;
 
         // Development fallback keys
-        const activeOrgId = req.body.orgId || "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"; 
+        const activeOrgId = req.body.orgId || "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d";
 
         // Step A: Seed baseline custom profile
         const { data: newProfile, error: profileErr } = await supabaseAdmin
             .from('profiles')
             .insert([{
-                id: generatedAllviId, 
+                id: generatedAllviId,
                 email: cleanEmail,
                 role: 'patient',
                 full_name: fullName,
@@ -74,10 +74,10 @@ const enrollPatient = async (req, res) => {
             .from('intake_forms')
             .insert([{
                 patient_id: newProfile.id,
-                condition: primaryCondition.toLowerCase().includes('pcos') ? 'pcos' : 
-                           primaryCondition.toLowerCase().includes('endo') ? 'endometriosis' : 
-                           primaryCondition.toLowerCase().includes('peri') ? 'perimenopause' : 
-                           primaryCondition.toLowerCase().includes('meno') ? 'menopause' : 'hashimotos',
+                condition: primaryCondition.toLowerCase().includes('pcos') ? 'pcos' :
+                    primaryCondition.toLowerCase().includes('endo') ? 'endometriosis' :
+                        primaryCondition.toLowerCase().includes('peri') ? 'perimenopause' :
+                            primaryCondition.toLowerCase().includes('meno') ? 'menopause' : 'hashimotos',
                 status: 'invited',
                 version: 1,
                 clinician_notes: `Invited via dashboard form. Referring: ${referringClinician || 'None'}. Contact: ${treatingClinicianEmail || 'None'}`
@@ -89,12 +89,15 @@ const enrollPatient = async (req, res) => {
         const productionBaseUrl = 'https://clinic-test-ten.vercel.app';
         const magicActivationLink = `${productionBaseUrl}/activate`;
 
-        const transporter = nodemailer.createTransport({ 
-            service: 'gmail', 
-            auth: { 
-                user: process.env.EMAIL_USER, 
-                pass: process.env.EMAIL_PASS 
-            } 
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
+            }
         });
 
         const mailOptions = {
@@ -160,7 +163,7 @@ const activateAccount = async (req, res) => {
 
         if (fetchErr) throw fetchErr;
         if (!existingProfile) return res.status(404).json({ success: false, message: "Invitation record not found." });
-        
+
         // Safety Gate: If it already has BOTH a password and auth ID, it's truly active
         if (existingProfile.auth_user_id && existingProfile.password) {
             return res.status(400).json({ success: false, message: "Account already active. Please log in." });
@@ -173,11 +176,11 @@ const activateAccount = async (req, res) => {
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
             email: emailInput,
             password: passwordInput, // Plaintext goes to Supabase Auth handler natively
-            options: { 
-                data: { 
-                    role: existingProfile.role, 
-                    country_code: existingProfile.country_code 
-                } 
+            options: {
+                data: {
+                    role: existingProfile.role,
+                    country_code: existingProfile.country_code
+                }
             }
         });
 
@@ -185,7 +188,7 @@ const activateAccount = async (req, res) => {
             // 🧠 THE AUTOMATIC BYPASS: If they already exist in Auth, don't crash!
             if (signUpError.message.toLowerCase().includes('already registered')) {
                 console.log(`ℹ️ Email exists in auth.users. Fetching existing user ID to link details automatically...`);
-                
+
                 // Because we cannot access authData, we sign them in with the password to grab their ID and create a session
                 const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
                     email: emailInput,
@@ -194,12 +197,12 @@ const activateAccount = async (req, res) => {
 
                 if (signInErr) {
                     console.error("❌ Auth match failed:", signInErr.message);
-                    return res.status(400).json({ 
-                        success: false, 
-                        message: "User exists in Auth but password validation failed. Reset your user dashboard or change your test email." 
+                    return res.status(400).json({
+                        success: false,
+                        message: "User exists in Auth but password validation failed. Reset your user dashboard or change your test email."
                     });
                 }
-                
+
                 confirmedAuthUserId = signInData.user.id;
                 activeSession = signInData.session;
             } else {
@@ -240,13 +243,13 @@ const activateAccount = async (req, res) => {
         const { data: completeProfile, error: profileErr } = await supabaseAdmin
             .from('profiles')
             .update({
-                auth_user_id: confirmedAuthUserId, 
+                auth_user_id: confirmedAuthUserId,
                 password: hashedPassword, // 🔑 Enforced: Secure encrypted hash committed to database
                 updated_at: new Date().toISOString()
             })
-            .eq('id', existingProfile.id) 
+            .eq('id', existingProfile.id)
             .select('*')
-            .single(); 
+            .single();
 
         if (profileErr) throw profileErr;
 
@@ -283,7 +286,7 @@ const login = async (req, res) => {
         // 🚨 CRITICAL: Explicitly select the 'password' column here to compare it later
         const { data: profileRecord, error: lookupErr } = await supabaseAdmin
             .from('profiles')
-            .select('email, id, role, password') 
+            .select('email, id, role, password')
             .or(`email.eq."${cleanIdentifier}",id.eq."${cleanIdentifier}"`)
             .maybeSingle();
 
@@ -328,7 +331,7 @@ const login = async (req, res) => {
             success: true,
             message: "Login successful.",
             session: authData.session, // Contains access_token and refresh_token
-            patient: sanitizedPatient 
+            patient: sanitizedPatient
         });
 
     } catch (err) {
