@@ -1,5 +1,6 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
 const logService = require('../services/logService');
+require('dotenv').config();
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
@@ -90,14 +91,17 @@ const enrollPatient = async (req, res) => {
         const magicActivationLink = `${productionBaseUrl}/activate`;
 
         const transporter = nodemailer.createTransport({
-            service: 'gmail',
             host: 'smtp.gmail.com',
             port: 465,
-            secure: true,
+            secure: true, // true for 465, false for other ports
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS
-            }
+            },
+            // Prevent Render from hanging infinitely if connection drops
+            connectionTimeout: 6000, 
+            greetingTimeout: 5000,   
+            socketTimeout: 10000     
         });
 
         const mailOptions = {
