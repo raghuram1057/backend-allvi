@@ -276,6 +276,46 @@ const activateAccount = async (req, res) => {
         return res.status(500).json({ success: false, error: err.message });
     }
 };
+
+
+const forgotPassword = async (req, res) => {
+    const { identifier } = req.body; // Expects { "identifier": "Allvi-XXXX" or "email@..." }
+    const cleanIdentifier = identifier ? identifier.trim().toLowerCase() : '';
+
+    if (!cleanIdentifier) {
+        return res.status(400).json({ success: false, message: "Identifier is required." });
+    }
+
+    try {
+        // 1. Resolve to email: Look up in profiles using the OR condition
+        const { data: profileRecord, error: lookupErr } = await supabaseAdmin
+            .from('profiles')
+            .select('email')
+            .or(`email.eq."${cleanIdentifier}",id.eq."${cleanIdentifier}"`)
+            .maybeSingle();
+
+        if (lookupErr || !profileRecord) {
+            return res.status(404).json({ success: false, message: "User account not found." });
+        }
+
+        // 2. Trigger Supabase Auth Password Reset
+        // Note: This sends an email using the template configured in your Supabase Dashboard
+        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(profileRecord.email, {
+            redirectTo: `${process.env.CLIENT_URL || 'https://clinic-test-ten.vercel.app'}/update-password`,
+        });
+
+        if (resetErr) throw resetErr;
+
+        return res.status(200).json({ 
+            success: true, 
+            message: "Password reset link has been dispatched to your registered email address." 
+        });
+
+    } catch (err) {
+        console.error("❌ FORGOT PASSWORD ROUTINE ERROR:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
 const login = async (req, res) => {
     const inputIdentifier = req.body.allviId || req.body.email;
     const cleanIdentifier = inputIdentifier ? inputIdentifier.trim().toLowerCase() : '';
@@ -343,4 +383,65 @@ const login = async (req, res) => {
         return res.status(500).json({ success: false, error: "Internal core engine runtime crash during login." });
     }
 };
-module.exports = { enrollPatient, activateAccount, login };
+
+const verifyUser = async (req, res) => {
+    const { identifier } = req.body;
+    const cleanIdentifier = identifier.trim().toLowerCase();
+
+    try {
+        const { data: profile, error } = await supabaseAdmin
+            .from('profiles')
+            .select('id, email')
+            .or(`email.eq."${cleanIdentifier}",id.eq."${cleanIdentifier}"`)
+            .maybeSingle();
+
+        if (error || !profile) {
+            return res.status(404).json({ success: false, message: "No account found with this ID or Email." });
+        }
+
+        // Return the ID so the frontend knows WHO to update
+        res.status(200).json({ success: true, userId: profile.id });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+const updatePassword = async (req, res) => {
+    const { userId, newPassword } = req.body; // userId should be the 'id' from profiles
+   
+
+    try {
+        // 1. Fetch the profile to get the auth_user_id (the UUID)
+        const { data: profile, error: profileErr } = await supabaseAdmin
+            .from('profiles')
+            .select('auth_user_id')
+            .eq('id', userId)
+            .single();
+
+        if (profileErr || !profile.auth_user_id) {
+            throw new Error("Could not find Auth ID for this profile.");
+        }
+
+        // 2. Update the password in Supabase Auth (The Auth Engine)
+        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+            profile.auth_user_id, 
+            { password: newPassword }
+        );
+        if (authError) throw authError;
+
+        // 3. Update the password in your 'profiles' table (The Bcrypt Hash)
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        const { error: dbError } = await supabaseAdmin
+            .from('profiles')
+            .update({ password: hashedPassword })
+            .eq('id', userId);
+
+        if (dbError) throw dbError;
+
+        res.status(200).json({ success: true, message: "Password synchronized across all systems." });
+    } catch (err) {
+        console.error("❌ SYNC ERROR:", err.message);
+        res.status(500).json({ success: false, error: "Failed to sync password." });
+    }
+};
+module.exports = { enrollPatient, activateAccount, login,forgotPassword,verifyUser,updatePassword };

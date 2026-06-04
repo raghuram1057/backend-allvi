@@ -17,10 +17,12 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.post('/enroll', authController.enrollPatient);
 router.post('/activate', authController.activateAccount);
 router.post('/login', authController.login);
-
+router.post('/forgot-password', authController.forgotPassword);
+router.post('/verify', authController.verifyUser); 
+router.post('/update-password', authController.updatePassword);
 // Guarded Protected Clinical Information Workflow Vectors
 router.post('/checkin', requireAuth, healthController.submitDailyCheckin);
-router.post('/labs/upload', requireAuth, upload.single('labReport'), healthController.uploadLabReport);
+router.post('/labs/upload', requireAuth, upload.single('file'), healthController.uploadLabReport);
 router.post(
     '/submit-intake',
     requireAuth,

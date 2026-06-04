@@ -55,52 +55,87 @@ const HealthController = {
      */
     uploadLabReport: async (req, res) => {
         try {
-            if (!req.file) return res.status(400).json({ success: false, error: "Missing required report file attachment upload reference." });
+            if (!req.file) return res.status(400).json({ success: false, error: "Missing file." });
             const patientId = req.user.id;
 
-            // 1. Log incoming tracking context footprint safely inside lab_uploads
-            const storagePath = `lab-uploads/${patientId}/${Date.now()}_${req.file.originalname}`;
+            // 1. Sanitize file meta for storage
+            const cleanFileName = req.file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
+            const storagePath = `lab-uploads/${patientId}/${Date.now()}_${cleanFileName}`;
+            const fileTypeExtension = req.file.mimetype.split('/')[1] || 'pdf';
 
-            // Execute storage transaction context call to your private bucket structure
-            const { error: uploadErr } = await supabase.storage
+            // 2. Transaction A: Storage Upload
+            const { error: storageErr } = await supabaseAdmin.storage
                 .from('lab-uploads')
-                .upload(storagePath, req.file.buffer, { contentType: req.file.mimetype, cacheControl: '3600' });
+                .upload(storagePath, req.file.buffer, {
+                    contentType: req.file.mimetype,
+                    cacheControl: '3600'
+                });
+            if (storageErr) throw storageErr;
 
-            if (uploadErr) throw uploadErr;
-
-            const { data: uploadRecord, error: dbErr } = await supabase
+            // 3. Transaction B: Log into 'lab_uploads' with Rollback Protection
+            const { data: uploadRecord, error: uploadDbErr } = await supabaseAdmin
                 .from('lab_uploads')
                 .insert([{
                     patient_id: patientId,
                     storage_path: storagePath,
                     file_name: req.file.originalname,
-                    file_type: req.file.mimetype.split('/')[1],
+                    file_type: ['pdf', 'jpeg', 'png'].includes(fileTypeExtension) ? fileTypeExtension : 'pdf',
                     file_size_bytes: req.file.size,
                     upload_status: 'virus_scanned'
                 }])
-                .select('*')
+                .select('id')
                 .single();
 
-            if (dbErr) throw dbErr;
+            if (uploadDbErr) {
+                await supabaseAdmin.storage.from('lab-uploads').remove([storagePath]);
+                throw uploadDbErr;
+            }
 
-            // 2. Pass data elements safely to extraction modules
-            const parsedData = await aiService.extractLabReport(req.file.buffer, req.file.mimetype);
+            // 4. AI Extraction
+            let aiParsedData = null;
+            try {
+                aiParsedData = await aiService.extractLabReport(req.file.buffer, req.file.mimetype);
+            } catch (aiErr) {
+                console.error("AI Extraction skipped, saving file record only:", aiErr.message);
+            }
 
-            await logService.write({
-                req: req,
-                action: 'lab.uploaded',
-                resourceType: 'lab_uploads',
-                resourceId: uploadRecord.id,
-                patientId: patientId
-            });
+            // 5. Transaction C: Bulk Insert to 'lab_results'
+            if (aiParsedData?.biomarkers) {
+                const labEntries = Object.entries(aiParsedData.biomarkers).map(([key, info]) => {
+                    const parsedValue = parseFloat(info.value);
+                    const low = parseFloat(info.reference_range_low);
+                    const high = parseFloat(info.reference_range_high);
 
+                    return {
+                        patient_id: patientId,
+                        lab_upload_id: uploadRecord.id, // Linking to the tracking table record
+                        sampled_at: aiParsedData.test_date || new Date().toISOString().split('T')[0],
+                        display_name: info.label || key.toUpperCase().replace(/_/g, ' '),
+                        value_quantity: !isNaN(parsedValue) ? parsedValue : null,
+                        value_unit: info.unit || null,
+                        reference_range_low: !isNaN(low) ? low : null,
+                        reference_range_high: !isNaN(high) ? high : null,
+                        interpretation: ['normal', 'low', 'high'].includes(info.interpretation) ? info.interpretation : 'normal',
+                        allvi_status: ['green', 'amber', 'red'].includes(info.allvi_status) ? info.allvi_status : 'green',
+                        fhir_resource_type: 'Observation',
+                        fhir_status: 'final',
+                        entry_method: 'upload_parsed',
+                        clinician_verified: false
+                    };
+                });
+
+                await supabaseAdmin.from('lab_results').insert(labEntries);
+            }
+
+            // 6. Return success to UI
             return res.status(200).json({
                 success: true,
                 uploadTrackId: uploadRecord.id,
-                parsedData
+                parsedData: aiParsedData
             });
 
         } catch (err) {
+            console.error("❌ UPLOAD PIPELINE CRASH:", err);
             return res.status(500).json({ success: false, error: err.message });
         }
     },
