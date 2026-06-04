@@ -1,5 +1,8 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
+const { Resend } = require('resend');
 const logService = require('../services/logService');
+// Initialize outside the function scope
+const resend = new Resend(process.env.RESEND_API_KEY);
 require('dotenv').config();
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
@@ -90,7 +93,7 @@ const enrollPatient = async (req, res) => {
         const productionBaseUrl = 'https://clinic-test-ten.vercel.app';
         const magicActivationLink = `${productionBaseUrl}`;
 
-        const transporter = nodemailer.createTransport({
+        /*const transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
             port: 587, // Change from 465 to 587
             secure: false, // true for 465, false for other ports
@@ -132,7 +135,44 @@ const enrollPatient = async (req, res) => {
         };
 
         await transporter.sendMail(mailOptions);
-        console.log(`✉️ Magic activation email dispatched safely to: ${cleanEmail}`);
+        console.log(`✉️ Magic activation email dispatched safely to: ${cleanEmail}`);*/
+
+        // 4. Background Email Dispatch (Non-blocking)
+        const dispatchEmail = async () => {
+            try {
+                await resend.emails.send({
+                    from: `"Allvi Health Teams" <onboarding@allvihealth.com>`,
+                    to: cleanEmail,
+                    subject: `Complete Your Allvi Health Registration — Onboarding Invitation`,
+                    html: `
+                        <div style="font-family: 'DM Sans', sans-serif; color: #1F2937; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #EDE7DB; border-radius: 12px; background-color: #FFFFFF;">
+                            <h2 style="color: #0F4C5C; font-family: 'Playfair Display', serif; margin-top: 0; font-size: 22px;">Welcome to Allvi Health, ${fullName}!</h2>
+                            <p style="font-size: 14px; line-height: 1.6;">Your clinical team has invited you to join your secure, condition-specific management tracking workspace parameters.</p>
+                            
+                            <p style="font-size: 14px; line-height: 1.6;">To finalize your profile, pick a safe account password, and unlock access to your portal dashboard, please select the confirmation option below:</p>
+                            
+                            <div style="text-align: center; margin: 30px 0;">
+                                <a href="${magicActivationLink}" style="background-color: #0F4C5C; color: #F7F1E8; padding: 12px 26px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; font-size: 14px;">
+                                    Activate Your Tracking Account →
+                                </a>
+                            </div>
+                            
+                            <p style="font-size: 12px; color: #6B7280; margin-top: 24px;">
+                                If the option link button module fails to open, copy and paste this URL string directly into your browser context search bar:<br/>
+                                <a href="${magicActivationLink}" style="color: #1A6B7C; word-break: break-all;">${magicActivationLink}</a>
+                            </p>
+                            <hr style="border: 0; border-top: 1px solid #EDE7DB; margin: 20px 0;" />
+                            <p style="font-size: 11px; color: #6B7280;">This email is an automated lifecycle tracking dispatch configured by your connected clinical team.</p>
+                        </div>
+                    `
+                });
+                console.log(`✉️ Magic activation email dispatched safely via Resend to: ${cleanEmail}`);
+            } catch (err) {
+                console.error("❌ Background email failed:", err.message);
+            }
+        };
+
+        dispatchEmail(); // Trigger background task
 
         // Return unified creation payload tokens back to the dashboard UI
         return res.status(201).json({
