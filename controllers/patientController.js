@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const aiService = require('../services/AIService');
 
+//named
 const calculateCurrentStreak = (checkinDates) => {
     if (!checkinDates || checkinDates.length === 0) return 0;
 
