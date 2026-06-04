@@ -87,21 +87,21 @@ const enrollPatient = async (req, res) => {
         /* ==========================================================
              🚀 EMAIL DISPATCH LAYER: Deployed Vercel Core Target Link
              ========================================================== */
-        /*const productionBaseUrl = 'https://clinic-test-ten.vercel.app';
+        const productionBaseUrl = 'https://clinic-test-ten.vercel.app';
         const magicActivationLink = `${productionBaseUrl}`;
 
         const transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
-            port: 465,
-            secure: true, // true for 465, false for other ports
+            port: 587, // Change from 465 to 587
+            secure: false, // true for 465, false for other ports
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS
             },
             // Prevent Render from hanging infinitely if connection drops
-            connectionTimeout: 6000, 
-            greetingTimeout: 5000,   
-            socketTimeout: 10000     
+            connectionTimeout: 6000,
+            greetingTimeout: 5000,
+            socketTimeout: 10000
         });
 
         const mailOptions = {
@@ -141,16 +141,15 @@ const enrollPatient = async (req, res) => {
             allviId: newProfile.id,
             email: newProfile.email,
             enrolmentId: enrolmentRecord.id
-        });*/
+        });
         // REPLACE YOUR EMAIL BLOCK WITH THIS TEMPORARILY:
-        console.log("Skipping email for debug...");
+        /*console.log("Skipping email for debug...");
         return res.status(201).json({
             success: true,
             message: "Patient enrollment initialized successfully (Email skipped).",
             allviId: newProfile.id,
             enrolmentId: enrolmentRecord.id
-        });
-
+        });*/
     } catch (err) {
         console.error("❌ ENROLLMENT ROUTINE EXCEPTION:", err.message);
         return res.status(500).json({ success: false, error: err.message });
