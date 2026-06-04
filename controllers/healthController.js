@@ -1,5 +1,5 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
-const aiService = require('../services/aiService');
+const aiService = require('../services/AIService');
 const logService = require('../services/logService');
 
 const HealthController = {
