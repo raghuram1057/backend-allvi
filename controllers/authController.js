@@ -158,11 +158,11 @@ const enrollPatient = async (req, res) => {
                             </div>
                             
                             <p style="font-size: 12px; color: #6B7280; margin-top: 24px;">
-                                If the option link button module fails to open, copy and paste this URL string directly into your browser context search bar:<br/>
+                                If the option link button module fails to open, copy and paste this URL directly into your browser context search bar:<br/>
                                 <a href="${magicActivationLink}" style="color: #1A6B7C; word-break: break-all;">${magicActivationLink}</a>
                             </p>
                             <hr style="border: 0; border-top: 1px solid #EDE7DB; margin: 20px 0;" />
-                            <p style="font-size: 11px; color: #6B7280;">This email is an automated lifecycle tracking dispatch configured by your connected clinical team.</p>
+                            <p style="font-size: 11px; color: #6B7280;">This is an automated enrollment notification sent on behalf of your care team at Allvi Health. Please do not reply directly to this email. <br/> If you have any questions, please contact your clinic directly.</p>
                         </div>
                     `
                 });
