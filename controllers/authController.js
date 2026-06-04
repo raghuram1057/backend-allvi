@@ -85,9 +85,9 @@ const enrollPatient = async (req, res) => {
             }]);
 
         /* ==========================================================
-           🚀 EMAIL DISPATCH LAYER: Deployed Vercel Core Target Link
-           ========================================================== */
-        const productionBaseUrl = 'https://clinic-test-ten.vercel.app';
+             🚀 EMAIL DISPATCH LAYER: Deployed Vercel Core Target Link
+             ========================================================== */
+        /*const productionBaseUrl = 'https://clinic-test-ten.vercel.app';
         const magicActivationLink = `${productionBaseUrl}`;
 
         const transporter = nodemailer.createTransport({
@@ -140,6 +140,14 @@ const enrollPatient = async (req, res) => {
             message: "Patient enrollment initialized successfully and magic activation link sent.",
             allviId: newProfile.id,
             email: newProfile.email,
+            enrolmentId: enrolmentRecord.id
+        });*/
+        // REPLACE YOUR EMAIL BLOCK WITH THIS TEMPORARILY:
+        console.log("Skipping email for debug...");
+        return res.status(201).json({
+            success: true,
+            message: "Patient enrollment initialized successfully (Email skipped).",
+            allviId: newProfile.id,
             enrolmentId: enrolmentRecord.id
         });
 
@@ -306,9 +314,9 @@ const forgotPassword = async (req, res) => {
 
         if (resetErr) throw resetErr;
 
-        return res.status(200).json({ 
-            success: true, 
-            message: "Password reset link has been dispatched to your registered email address." 
+        return res.status(200).json({
+            success: true,
+            message: "Password reset link has been dispatched to your registered email address."
         });
 
     } catch (err) {
@@ -408,7 +416,7 @@ const verifyUser = async (req, res) => {
 
 const updatePassword = async (req, res) => {
     const { userId, newPassword } = req.body; // userId should be the 'id' from profiles
-   
+
 
     try {
         // 1. Fetch the profile to get the auth_user_id (the UUID)
@@ -424,7 +432,7 @@ const updatePassword = async (req, res) => {
 
         // 2. Update the password in Supabase Auth (The Auth Engine)
         const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
-            profile.auth_user_id, 
+            profile.auth_user_id,
             { password: newPassword }
         );
         if (authError) throw authError;
@@ -444,4 +452,4 @@ const updatePassword = async (req, res) => {
         res.status(500).json({ success: false, error: "Failed to sync password." });
     }
 };
-module.exports = { enrollPatient, activateAccount, login,forgotPassword,verifyUser,updatePassword };
+module.exports = { enrollPatient, activateAccount, login, forgotPassword, verifyUser, updatePassword };
