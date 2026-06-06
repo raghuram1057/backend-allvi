@@ -98,6 +98,7 @@ const HealthController = {
             } catch (aiErr) {
                 console.error("AI Extraction skipped, saving file record only:", aiErr.message);
             }
+            console.log(aiParsedData)
 
             // 5. Transaction C: Bulk Insert to 'lab_results'
             if (aiParsedData?.biomarkers) {
@@ -120,7 +121,10 @@ const HealthController = {
                         fhir_resource_type: 'Observation',
                         fhir_status: 'final',
                         entry_method: 'upload_parsed',
-                        clinician_verified: false
+                        clinician_verified: false,
+                        loinc_code: info.loinc_code || null,
+                        lab_name : aiParsedData.lab_name,
+                        ordering_clinician:aiParsedData.ordering_clinician
                     };
                 });
 
@@ -193,7 +197,8 @@ const HealthController = {
 
                     value_quantity: finalValue,                                // numeric(10,4)
                     value_unit: info.unit || null,
-                    lab_name:info.lab_name,
+                    lab_name: biomarkers.lab_name,
+                    ordering_clinician:biomarkers.ordering_clinician,
 
                     reference_range_low: !isNaN(low) ? low : null,             // numeric(10,4)
                     reference_range_high: !isNaN(high) ? high : null,          // numeric(10,4)

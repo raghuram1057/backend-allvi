@@ -80,18 +80,16 @@ class AIService {
         - Return ONLY pure, raw, valid JSON text. 
         - Do NOT wrap the JSON output inside markdown backticks or triple-backtick block strings.
     `;*/
+        const prompt = `ACT AS: A clinical data extraction engine compliant with HL7 FHIR structures and PostgreSQL structural constraints.
+        TASK: Extract every single laboratory test result from the provided medical document image or PDF text fields.
 
-        const prompt = `
-ACT AS: A clinical data extraction engine compliant with HL7 FHIR structures and PostgreSQL structural constraints.
-TASK: Extract every single laboratory test result from the provided medical document image or PDF text fields.
-
-REQUIRED JSON STRUCTURE:
-{
-  "sampled_at": "YYYY-MM-DD",
-  "lab_name": "string or null",
-  "ordering_clinician": "string or null",
-  "biomarkers": [
-    {
+        REQUIRED JSON STRUCTURE:
+        {
+       "sampled_at": "YYYY-MM-DD",
+       "lab_name": "string or null",
+        "ordering_clinician": "string or null",
+       "biomarkers": [
+        {
       "display_name": "string",
       "lab_name": "string or null",
       "loinc_code": "string or null",
@@ -102,50 +100,51 @@ REQUIRED JSON STRUCTURE:
       "reference_range_unit": "string or null",
       "interpretation": "normal | low | high | critical_low | critical_high",
       "allvi_status": "green | amber | red"
-    }
-  ]
-}
+       }
+     ]
+     }
 
-CRITICAL DATABASE SCHEMA CONSTRAINTS & PARSING INSTRUCTIONS:
+      CRITICAL DATABASE SCHEMA CONSTRAINTS & PARSING INSTRUCTIONS:
 
-1. LAB NAME MAPPING ("lab_name"):
-   - Global level: Extract the master diagnostic facility name found in the document header.
-   - Biomarker level: For each item inside the "biomarkers" array, explicitly assign the responsible laboratory facility string (e.g., 'Quest', 'LabCorp', 'NHS'). If the document is from a single facility, populate this field with the same global lab name across all rows.
+    1. LAB NAME MAPPING ("lab_name"):
+    - Global level: Extract the master diagnostic facility name found in the document header.
+     - Biomarker level: For each item inside the "biomarkers" array, explicitly assign the responsible laboratory facility string (e.g., 'Quest', 'LabCorp', 'NHS'). If the document is from a single facility, populate this field with the same global lab name across all rows.
 
-2. DATE ALIGNMENT ("sampled_at"):
-   - Locate the collection date (the date blood was drawn, NOT the report generation or print date).
-   - Format strictly as a "YYYY-MM-DD" text string. This maps directly to a PostgreSQL DATE NOT NULL constraint.
+    2. DATE ALIGNMENT ("sampled_at"):
+      - Locate the collection date (the date blood was drawn, NOT the report generation or print date).
+      - Format strictly as a "YYYY-MM-DD" text string. This maps directly to a PostgreSQL DATE NOT NULL constraint.
 
-3. NUMERIC FIELDS ("value_quantity", "reference_range_low", "reference_range_high"):
-   - Must be parsed strictly as plain numeric floating-point values (e.g., 4.5000) or null.
-   - Do NOT include text, comparison operators (<, >, >=), or alpha characters.
-   - Max precision limit is NUMERIC(10,4). Truncate values to 4 decimal places max if necessary.
+    3. NUMERIC FIELDS ("value_quantity", "reference_range_low", "reference_range_high"):
+     - Must be parsed strictly as plain numeric floating-point values (e.g., 4.5000) or null.
+     - Do NOT include text, comparison operators (<, >, >=), or alpha characters.
+     - Max precision limit is NUMERIC(10,4). Truncate values to 4 decimal places max if necessary.
 
-4. STRINGS AND ENUMS ("interpretation", "allvi_status"):
-   - "interpretation" MUST strictly match one of these lowercase enums or default to null if unclear:
-     * 'normal' (strictly within standard reference intervals)
-     * 'low' (below reference range)
-     * 'high' (above reference range)
-     * 'critical_low' (severely below range/flagged as critical)
-     * 'critical_high' (severely above range/flagged as critical)
-   - "allvi_status" MUST match your structural CHECK constraint:
-     * 'green' (optimal or safe normal tier values)
-     * 'amber' (borderline elevated risk or mildly out of bounds values)
-     * 'red' (severely abnormal or critical warning tier flags)
+    4. STRINGS AND ENUMS ("interpretation", "allvi_status"):
+      - "interpretation" MUST strictly match one of these lowercase enums or default to null if unclear:
+       * 'normal' (strictly within standard reference intervals)
+       * 'low' (below reference range)
+       * 'high' (above reference range)
+       * 'critical_low' (severely below range/flagged as critical)
+       * 'critical_high' (severely above range/flagged as critical)
+       - "allvi_status" MUST match your structural CHECK constraint:
+       * 'green' (optimal or safe normal tier values)
+       * 'amber' (borderline elevated risk or mildly out of bounds values)
+       * 'red' (severely abnormal or critical warning tier flags)
+       *  "lab_name": "string or null"
 
-5. UNIT MATCHING ("value_unit", "reference_range_unit"):
-   - "value_unit": Extract the printed units (e.g., 'mIU/L', 'ng/dL', 'ng/mL').
-   - "reference_range_unit": Populate with the exact measurement criteria unit of the reference index interval. If identical to value_unit, repeat it here.
+    5. UNIT MATCHING ("value_unit", "reference_range_unit"):
+      - "value_unit": Extract the printed units (e.g., 'mIU/L', 'ng/dL', 'ng/mL').
+     - "reference_range_unit": Populate with the exact measurement criteria unit of the reference index interval. If identical to value_unit, repeat it here.
 
-6. CLINICAL CODES ("display_name", "loinc_code"):
-   - "display_name": Capture the explicit formal text name string printed on the lab line (e.g., 'TSH', 'Free T4', 'Ferritin'). This is a NOT NULL constraint.
-   - "loinc_code": Cross-reference the identified test name to its official LOINC standard identifier string if clearly apparent or extractable (e.g., '3016-3' for TSH). If not identifiable, return null.
+    6. CLINICAL CODES ("display_name", "loinc_code"):
+      - "display_name": Capture the explicit formal text name string printed on the lab line (e.g., 'TSH', 'Free T4', 'Ferritin'). This is a NOT NULL constraint.
+     - "loinc_code": Cross-reference the identified test name to its official LOINC standard identifier string if clearly apparent or extractable (e.g., '3016-3' for TSH). If not identifiable, return null.
 
-EXTRACTION OUTPUT RULES:
-- Return ONLY pure, raw, valid JSON text.
-- Do NOT wrap the JSON output inside markdown backticks, markdown syntax labels, or triple-backtick block structures (\`\`\`json ... \`\`\`).
-- If a value cannot be found in the document, map it to null rather than omitting the key.
-`;
+    EXTRACTION OUTPUT RULES:
+      - Return ONLY pure, raw, valid JSON text.
+       -  Do NOT wrap the JSON output inside markdown backticks, markdown syntax labels, or triple-backtick block structures (\`\`\`json ... \`\`\`).
+      - If a value cannot be found in the document, map it to null rather than omitting the key.
+          `;
 
         const result = await model.generateContent([prompt, filePart]);
         let aiText = result.response.text().trim();
