@@ -148,6 +148,7 @@ const HealthController = {
             // 1. Grab the payload from Phase1Review.jsx
             const { test_date, biomarkers, lab_upload_id } = req.body;
             console.log("📥 Incoming Review Payload:", req.body);
+            console.log(biomarkers)
 
             const patientId = req.user?.id || req.body.patientId;
 
@@ -192,6 +193,7 @@ const HealthController = {
 
                     value_quantity: finalValue,                                // numeric(10,4)
                     value_unit: info.unit || null,
+                    lab_name:info.lab_name,
 
                     reference_range_low: !isNaN(low) ? low : null,             // numeric(10,4)
                     reference_range_high: !isNaN(high) ? high : null,          // numeric(10,4)
@@ -376,6 +378,8 @@ const HealthController = {
                 .from('patient_enrolments')
                 .update({ updated_at: new Date().toISOString() })
                 .eq('patient_id', patientId);
+
+           console.log(aiParsedReportData)
 
             // Return unified status response maps to transition your front-end components seamlessly
             return res.status(200).json({

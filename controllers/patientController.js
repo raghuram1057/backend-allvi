@@ -90,8 +90,8 @@ const patientController = {
             const checkinDates = (symptoms || []).map(s => s.checkin_date);
             const currentStreak = calculateCurrentStreak(checkinDates);
             // DEBUGGING LOGS
-            console.log("DB_CHECK:", { pErr, iErr, lErr, sErr, mErr });
-            console.log("LAB_ROWS_RECEIVED:", labRows);
+            //console.log("DB_CHECK:", { pErr, iErr, lErr, sErr, mErr });
+            //console.log("LAB_ROWS_RECEIVED:", labRows);
 
             // 2. Pivot Logic (Same as before)
             const labsByDate = {};
@@ -110,6 +110,8 @@ const patientController = {
                 });
             }
 
+            //console.log("re",labRows)
+
             // 3. Handle JSONB flattening for Intake
             const intake = intakeData && intakeData.length > 0 ? intakeData[0] : {};
             const normalizedIntake = {
@@ -118,6 +120,7 @@ const patientController = {
                 symptoms: intake.condition_data?.symptoms || intake.primary_symptoms || [],
                 goals: intake.goals_free_text || intake.goals || ""
             };
+
 
             res.status(200).json({
                 success: true,
