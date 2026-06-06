@@ -111,7 +111,7 @@ const HealthController = {
                         patient_id: patientId,
                         lab_upload_id: uploadRecord.id, // Linking to the tracking table record
                         sampled_at: aiParsedData.test_date || new Date().toISOString().split('T')[0],
-                        display_name: info.label || key.toUpperCase().replace(/_/g, ' '),
+                        display_name: info.label || key ,
                         value_quantity: !isNaN(parsedValue) ? parsedValue : null,
                         value_unit: info.unit || null,
                         reference_range_low: !isNaN(low) ? low : null,

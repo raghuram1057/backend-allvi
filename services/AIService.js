@@ -188,6 +188,7 @@ class AIService {
                     value: marker.value_quantity !== null && marker.value_quantity !== undefined ? parseFloat(marker.value_quantity) : null,
                     unit: marker.value_unit || '',
                     ref_range: refString,
+                    lab_name:marker.lab_name,
 
                     // Preserve the database constraint fields so they pass straight through the frontend to the controller
                     reference_range_low: marker.reference_range_low !== undefined ? marker.reference_range_low : null,
