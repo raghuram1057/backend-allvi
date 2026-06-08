@@ -37,6 +37,40 @@ const calculateCurrentStreak = (checkinDates) => {
 };
 
 const patientController = {
+
+    getWeeklyReport: async (req, res) => {
+        try {
+            const { patientId } = req.params;
+            const targetUuid = patientId || req.user.id;
+
+            const [
+                { data: labRows },
+                { data: checkins },
+                { data: intakeRows }
+            ] = await Promise.all([
+                supabaseAdmin.from('lab_results').select('*').eq('patient_id', targetUuid).order('sampled_at', { ascending: true }),
+                supabaseAdmin.from('daily_checkins').select('*').eq('patient_id', targetUuid).order('checkin_date', { ascending: true }),
+                supabaseAdmin.from('intake_forms').select('*').eq('patient_id', targetUuid).order('created_at', { ascending: false }).limit(1)
+            ]);
+
+            const aiGeneratedPayload = await aiService.generateWeeklyMonitoringFeed(
+                labRows || [],
+                checkins || [],
+                intakeRows?.[0] || {}
+            );
+
+            return res.status(200).json({
+                success: true,
+                clinical_monitoring: aiGeneratedPayload.clinical_monitoring || [],
+                weekly_patterns: aiGeneratedPayload.weekly_patterns || [],
+                whats_next: aiGeneratedPayload.whats_next || [] // ✅ Sent down to frontend state smoothly
+            });
+
+        } catch (err) {
+            console.error("❌ Weekly Report Router Error:", err.message);
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    },
     getInsights: async (req, res) => {
         try {
             const { patientId } = req.params;
@@ -120,6 +154,14 @@ const patientController = {
                 symptoms: intake.condition_data?.symptoms || intake.primary_symptoms || [],
                 goals: intake.goals_free_text || intake.goals || ""
             };
+            let dynamicWhatsNextArray = [];
+            if (labRows && labRows.length > 0) {
+                // Generate using the updated class method we built in your AIService
+                const aiResponsePayload = await aiService.generateWeeklyMonitoringFeed(labRows || [], symptoms || [], intake);
+                dynamicWhatsNextArray = aiResponsePayload?.whats_next || [];
+            }
+
+
 
 
             res.status(200).json({
@@ -135,11 +177,14 @@ const patientController = {
                     date: s.checkin_date
                 })),
                 streak: currentStreak,
-                specialistReviews: reviews || []
+                specialistReviews: reviews || [],
+                whats_next: dynamicWhatsNextArray
             });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
         }
     }
+
+
 };
 module.exports = patientController;

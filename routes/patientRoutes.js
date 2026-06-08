@@ -36,5 +36,6 @@ router.get('/sync/tally', requireAuth, syncController.syncPastTallySubmissions);
 
 router.get('/dashboard/:patientId', requireAuth, patientController.getDashboardData);
 router.get('/insights/:patientId', requireAuth, patientController.getInsights);
+router.get('/weekly-report/:patientId', requireAuth, patientController.getWeeklyReport);
 
 module.exports = router;
