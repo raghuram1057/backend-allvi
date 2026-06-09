@@ -7,6 +7,7 @@ const authController = require('../controllers/authController');
 const healthController = require('../controllers/healthController');
 const patientController = require('../controllers/patientController');
 const syncController = require('../controllers/syncController');
+const appointmentController = require('../controllers/appointmentController.js');
 
 // Guard Middlewares Imports Definitions
 const requireAuth = require('../middlewares/authMiddleware');
@@ -41,5 +42,9 @@ router.get('/weekly-report/:patientId', requireAuth, patientController.getWeekly
 router.get('/advocacy-doc/:patientId',requireAuth , patientController.getAdvocacyDocData);
 // Route configuration for fetching structured patient data lists
 router.get('/protocol-comprehensive/:patientId', patientController.getDynamicProtocolManifest);
+
+//appointcontroller
+
+router.post('/request-appointment', requireAuth, appointmentController.requestAppointment);
 
 module.exports = router;
