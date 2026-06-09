@@ -37,6 +37,129 @@ const calculateCurrentStreak = (checkinDates) => {
 };
 
 const patientController = {
+    getDynamicProtocolManifest: async (req, res) => {
+        try {
+            const { patientId } = req.params;
+            const targetUuid = patientId && patientId !== 'undefined' ? patientId : req.user?.id;
+
+            if (!targetUuid) {
+                return res.status(400).json({ success: false, error: "Patient context ID missing from session query loops." });
+            }
+
+            // Fetch live profiles and intake context elements concurrently
+            const [
+                { data: profile },
+                { data: intakeRows },
+                { data: labRows },
+                { data: checkinRows }
+            ] = await Promise.all([
+                supabaseAdmin.from('profiles').select('*').eq('id', targetUuid).maybeSingle(),
+                supabaseAdmin.from('intake_forms').select('*').eq('patient_id', targetUuid).order('created_at', { ascending: false }).limit(1),
+                supabaseAdmin.from('lab_results').select('*').eq('patient_id', targetUuid).order('sampled_at', { ascending: false }),
+                supabaseAdmin.from('daily_checkins').select('*').eq('patient_id', targetUuid).order('checkin_date', { ascending: false })
+            ]);
+
+            const intake = intakeRows?.[0] || {};
+            
+            // 🚀 1. DIRECT DATABASE RENDER FIELDS (STRICT INTAKE-FORM COLUMN MAPPING)
+            // Extract the exact diagnosis array token out of the condition_data JSON block
+            const finalDiagnosis = intake.condition_data?.diagnoses?.[0] || intake.diagnoses?.[0] || "Hashimoto's Thyroiditis";
+            
+            // Pull initial tracking symptoms logged at baseline
+            const finalSymptoms = intake.condition_data?.symptoms || intake.primary_symptoms || [];
+            
+            // ✅ Read the exact patient primary goals string straight out of free_text_goal / goals_free_text
+            const finalGoals = intake.free_text_goal || intake.goals_free_text || intake.goals || "";
+
+            // Gather active supplements list from database to feed the AI prompt template
+            const baselineSupplements = intake.supplements_baseline || intake.condition_data?.supplements || [];
+            const checkinSupplements = (checkinRows || []).slice(0, 14).flatMap(c => c.supplements_taken || []);
+            const uniqueSupplements = Array.from(
+                new Set([...baselineSupplements, ...checkinSupplements].map(s => s?.trim()).filter(Boolean))
+            );
+
+            // 🚀 2. CALL GENERATIVE ENGINE FOR COMPREHENSIVE AI TAB GENERATION
+            // Passing down live database parameters prevents the generation of generic or hallucinated guidelines
+            const aiProtocol = await aiService.generateComprehensiveProtocol(
+                labRows || [], 
+                checkinRows || [], 
+                intake, 
+                profile || {},
+                uniqueSupplements
+            );
+
+            if (!aiProtocol) {
+                return res.status(500).json({ success: false, error: "AI failed to build protocol matrix models." });
+            }
+
+            // Return direct database tokens + dynamic generative matrices instantly to your frontend state loops
+            return res.status(200).json({
+                success: true,
+                diagnosis: finalDiagnosis,
+                symptoms: finalSymptoms,
+                goals: finalGoals, // Sent directly to the dark teal layout panel header card
+                protocol: aiProtocol 
+            });
+
+        } catch (err) {
+            console.error("❌ Protocol Engine Master Fault:", err);
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    },
+    getAdvocacyDocData: async (req, res) => {
+        try {
+            const { patientId } = req.params;
+            const targetUuid = patientId || req.user.id;
+
+            // 1. Fetch raw patient contexts from Supabase concurrently
+            const [
+                { data: labRows, error: lErr },
+                { data: checkins, error: cErr },
+                { data: intakeRows, error: iErr }
+            ] = await Promise.all([
+                supabaseAdmin.from('lab_results').select('*').eq('patient_id', targetUuid).order('sampled_at', { ascending: true }),
+                supabaseAdmin.from('daily_checkins').select('*').eq('patient_id', targetUuid).order('checkin_date', { ascending: true }),
+                supabaseAdmin.from('intake_forms').select('*').eq('patient_id', targetUuid).order('created_at', { ascending: false }).limit(1)
+            ]);
+
+            if (lErr || cErr || iErr) throw new Error("Database query execution pipeline exception.");
+
+            // 2. Pivot lab results for the timeline view matrix component
+            const labsByDate = {};
+            if (labRows && labRows.length > 0) {
+                labRows.forEach(row => {
+                    const date = row.sampled_at;
+                    if (!labsByDate[date]) labsByDate[date] = { test_date: date, meta: {} };
+
+                    const safeKey = row.display_name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                    labsByDate[date][safeKey] = row.value_quantity;
+                    labsByDate[date].meta[safeKey] = {
+                        label: row.display_name,
+                        unit: row.value_unit,
+                        ref_range: `${row.reference_range_low}-${row.reference_range_high}`
+                    };
+                });
+            }
+
+            // 3. Generate dynamic clinical questions using our AI service block
+            const aiGeneratedQuestions = await aiService.generateAdvocacyQuestions(
+                labRows || [],
+                checkins || [],
+                intakeRows?.[0] || {}
+            );
+
+            // 4. Return everything directly down the pipe
+            return res.status(200).json({
+                success: true,
+                labs: Object.values(labsByDate),
+                questions: aiGeneratedQuestions // ✅ Sent down to frontend cleanly!
+            });
+
+        } catch (err) {
+            console.error("❌ Advocacy Document Pipeline Error:", err.message);
+            return res.status(500).json({ success: false, error: "Internal query compiling error." });
+        }
+    },
 
     getWeeklyReport: async (req, res) => {
         try {

@@ -273,7 +273,7 @@ class AIService {
             const result = await model.generateContent(systemPrompt);
             let aiRawOutput = result.response.text().trim();
             aiRawOutput = aiRawOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
-            
+
             return JSON.parse(aiRawOutput);
         } catch (parseError) {
             console.error("AI Generation Engine mismatch fallback activated:", parseError);
@@ -292,6 +292,154 @@ class AIService {
                     { id: "recheck", type: "Retest", style_key: "d", content: "Schedule routine biomarker tracking follow-up panel at the 3-month mark to verify anti-TPO down-regulation trends." }
                 ]
             };
+        }
+    }
+
+    async generateAdvocacyQuestions(labs, checkins, intake) {
+        const parsedContext = {
+            baseline_diagnoses: intake?.condition_data?.diagnoses || intake?.primary_symptoms || [],
+            dietary_regime: intake?.diet_compliance || "",
+            latest_biomarkers: (labs || []).slice(-5).map(l => ({
+                test: l.display_name,
+                value: l.value_quantity,
+                unit: l.value_unit,
+                date: l.sampled_at
+            })),
+            recent_symptoms: (checkins || []).slice(-14).map(c => ({
+                date: c.checkin_date,
+                scores: { energy: c.energy_score, mood: c.mood_score, sleep: c.sleep_score, stress: c.stress_score },
+                notes: c.notes || "",
+                reported: c.symptoms_reported || []
+            }))
+        };
+
+        const systemPrompt = `
+            You are a senior clinical endocrinology data analyst. Your job is to generate exactly 5 precise, highly personalized consultation questions for a patient to ask their doctor/endocrinologist based on their tracking data.
+
+            PATIENT LIFECYCLE DATA:
+            ${JSON.stringify(parsedContext, null, 2)}
+
+            OUTPUT CONSTRAINTS:
+            - Return a strict, raw JSON object containing a single root key "questions". No conversational text wrappers or markdown code frames.
+            - Provide EXACTLY 5 questions.
+            - Every question must tie directly to real anomalies in their data (e.g., if Ferritin dropped from 24 to 19, explicitly state "Ferritin dropped from 24 to 19 ng/mL"). If certain biomarkers are normal, phrase questions about optimization boundaries or medication timings.
+
+            REQUIRED JSON FORMAT:
+            {
+              "questions": [
+                {
+                  "title": "Short title (e.g. Iron supplementation optimization)",
+                  "content": "Full detailed question string containing specific biometric values..."
+                }
+              ]
+            }
+        `;
+
+        try {
+            const result = await model.generateContent({
+                contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+                generationConfig: { responseMimeType: "application/json" }
+            });
+
+            const rawText = result.response.text().trim();
+            const parsed = JSON.parse(rawText);
+            return parsed.questions || [];
+        } catch (error) {
+            console.error("❌ Failed to generate AI advocacy questions, loading safety fallbacks:", error);
+            return [
+                { title: "Medication Titration", content: "Based on my tracking records, does my current TSH path justify staying on the current therapeutic pacing framework?" },
+                { title: "Micronutrient Tracking", content: "Given my background lab entries, should we alter the current dosing intervals to maximize parameter optimization?" }
+            ];
+        }
+    }
+
+    async generateComprehensiveProtocol(labs, checkins, intake, profile, uniqueSupplements) {
+        const sortedLabs = (labs || []).sort((a, b) => new Date(a.sampled_at) - new Date(b.sampled_at));
+        const newestLab = sortedLabs.length > 0 ? sortedLabs[sortedLabs.length - 1] : null;
+        const currentFerritin = newestLab?.value_quantity || null;
+
+        const dbDiagnosis = intake?.condition_data?.diagnoses?.[0] || intake?.diagnoses?.[0] || "Hashimoto's Thyroiditis";
+        const dbSymptoms = intake?.condition_data?.symptoms || intake?.primary_symptoms || [];
+        const dbGoals = intake?.goals_free_text || intake?.goals || "";
+        const complianceRate = intake?.compliance_rate || profile?.diet_compliance_rate || 93;
+
+        const parsedContext = {
+            diagnosis: dbDiagnosis,
+            symptoms: dbSymptoms,
+            goals: dbGoals,
+            compliance_rate: complianceRate,
+            current_ferritin_level: currentFerritin ? `${currentFerritin} ng/mL` : "Not available",
+            // 🚀 PASS DYNAMIC DATABASE SUPPLS ARRAY STRAIGHT TO AI
+            patient_active_supplements: uniqueSupplements || []
+        };
+
+        const systemPrompt = `
+            You are a senior clinical endocrinology data engine specializing in Hashimoto's Thyroiditis and metabolic recovery paths.
+            Analyze the following patient history dataset:
+            ${JSON.stringify(parsedContext, null, 2)}
+
+            TASK:
+            Generate a personalized lifestyle support protocol matching the exact JSON format below. 
+            Do not wrap the output inside markdown code frames (\`\`\`json). The response must be raw, valid JSON text.
+            
+            CRITICAL DESIGN RULES:
+            1. For the "supplements" object, loop over EVERY item inside "patient_active_supplements". Dynamically calculate a professional clinical target dose, ideal administrative timing (e.g. "With morning meal", "Before bed", "Empty stomach"), and a precise clinical why/strategy tailored to a thyroid or metabolic recovery profile.
+            2. If an Iron or Ferrous supplement is present in the list, construct an explicit "warning_banner" string addressing optimal absorption boundaries (avoiding caffeine/calcium within 1 hour). Otherwise, map "warning_banner" to null.
+            3. Populate "nutrition", "exercise", "sleep", and "stress" with exactly 3-4 highly relevant, contextual bullet matrices matching the target user data reality.
+
+            JSON OUTPUT SHAPE:
+            {
+              "nutrition": {
+                "compliance_header": "${complianceRate}% compliance over tracking matrix history.",
+                "protocols": [
+                  { "icon": "🚫", "title": "...", "detail": "..." }
+                ]
+              },
+              "supplements": {
+                "header": "Clinician-reviewed data. Do not change doses without checking with your Allvi team.",
+                "rows": [
+                  { "name": "Supplement Name", "dose": "Calculated Dose", "when": "Best Timing Window", "strategy": "Clinical Rationale..." }
+                ],
+                "warning_banner": "String or null"
+              },
+              "exercise": {
+                "header": "...",
+                "protocols": [
+                  { "icon": "🧘", "title": "...", "detail": "..." }
+                ]
+              },
+              "sleep": {
+                "header": "...",
+                "protocols": [
+                  { "icon": "🕗", "title": "...", "detail": "..." }
+                ]
+              },
+              "stress": {
+                "header": "...",
+                "protocols": [
+                  { "icon": "🧠", "title": "...", "detail": "..." }
+                ]
+              },
+              "action_plan": {
+                "header": "Tap any item to mark it done. Work through these in order.",
+                "already_doing": ["String guidelines"],
+                "ongoing": ["String guidelines"],
+                "watch": ["String guidelines"]
+              }
+            }
+        `;
+
+        try {
+            const result = await model.generateContent({
+                contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+                generationConfig: { responseMimeType: "application/json" }
+            });
+
+            const rawText = result.response.text().trim();
+            return JSON.parse(rawText);
+        } catch (error) {
+            console.error("❌ Gemini Protocol Pipeline Refusal:", error);
+            return null;
         }
     }
 }
