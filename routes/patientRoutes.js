@@ -45,6 +45,6 @@ router.get('/protocol-comprehensive/:patientId', patientController.getDynamicPro
 
 //appointcontroller
 
-router.post('/request-appointment', requireAuth, appointmentController.requestAppointment);
+router.post('/request-appointment/:patientId', requireAuth, appointmentController.requestAppointment);
 
 module.exports = router;

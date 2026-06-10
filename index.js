@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const patientRoutes = require('./routes/patientRoutes');
-
+const clinicalRoutes = require('./routes/clinicalRoutes.js');
 const app = express();
 
 // Set system communication options
@@ -19,6 +19,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Binding Route Segments directly into specialized path frameworks hooks
 app.use('/api/patient', patientRoutes);
+app.use('/api/clinical', clinicalRoutes);
 
 app.get('/', (req, res) => {
     res.status(200).send({ status: "online", service: "Allvi Compliance Core System Engine Platform APIs Engine Layer" });
