@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../../config/supabase.js');
+
 const calculateStreak = (checkins) => {
     if (!checkins || checkins.length === 0) return 0;
     const uniqueDates = [...new Set(checkins.map(c => c.checkin_date))].map(d => new Date(d));
@@ -24,11 +25,16 @@ const clinicalController = {
         try {
             const { patientId } = req.params;
 
+            // 🚀 Double-nested select: profiles -> patient_enrolments -> organizations (name)
             const { data, error } = await supabaseAdmin
                 .from('profiles')
                 .select(`
                     id, full_name, created_at,
                     intake_forms!patient_id ( condition ),
+                    patient_enrolments!patient_id (
+                        org_id,
+                        organisations ( name )
+                    ),
                     daily_checkins!patient_id ( 
                         checkin_date, energy_score, mood_score, sleep_score, stress_score 
                     )
@@ -39,11 +45,12 @@ const clinicalController = {
             if (error) throw error;
 
             const checkins = data.daily_checkins || [];
-            // Sort by date descending to get the latest
             const sorted = checkins.sort((a, b) => new Date(b.checkin_date) - new Date(a.checkin_date));
             const latest = sorted[0] || {};
 
-            // Calculate Weekly Reports (Simple 7-day rolling average)
+            // Extract the organization name safely from the deep nest
+            const organisationName = data.patient_enrolments?.[0]?.organisations?.name || "Independent Clinic";
+
             const weeklyReports = [
                 { week: 'Current Week', energy: latest.energy_score || 0, mood: latest.mood_score || 0, flags: 0, status: 'green' }
             ];
@@ -53,9 +60,10 @@ const clinicalController = {
                 patient: {
                     id: data.id,
                     name: data.full_name,
-                    condition: data.intake_forms?.[0]?.condition || "Thyroid Disease",
+                    condition: data.intake_forms?.[0]?.condition === 'hashimotos' ? "Hashimoto's" : data.intake_forms?.[0]?.condition || "Thyroid Disease",
+                    organisation: organisationName, // 🌟 Sent cleanly to detail dashboard views
                     enrollDate: data.created_at,
-                    streak: calculateStreak(checkins.map(c => c.checkin_date)),
+                    streak: calculateStreak(sorted),
                     metrics: {
                         Energy: latest.energy_score || 0,
                         Mood: latest.mood_score || 0,
@@ -69,9 +77,10 @@ const clinicalController = {
             res.status(500).json({ success: false, error: err.message });
         }
     },
+
     getPanelSummary: async (req, res) => {
         try {
-            // 🚀 1. Fetch profiles, explicit intake forms, and the most recent check-ins for streak logic
+            // 🚀 Double-nested select here too so the group dashboard table line rows can read the org mapping context
             const { data: records, error } = await supabaseAdmin
                 .from('profiles')
                 .select(`
@@ -79,9 +88,11 @@ const clinicalController = {
                     full_name, 
                     created_at,
                     intake_forms!patient_id ( condition ),
+                    patient_enrolments!patient_id (
+                        organisations ( name )
+                    ),
                     daily_checkins!patient_id ( checkin_date )
                 `)
-                // Filters check-ins to only look at recent history for clean calculation performance
                 .order('checkin_date', { foreignTable: 'daily_checkins', ascending: false });
 
             if (error) {
@@ -89,7 +100,6 @@ const clinicalController = {
                 throw error;
             }
 
-            // 🚀 2. Process and map the records, dynamically computing the consecutive check-in streak
             const patientsArray = records.map(p => {
                 const checkins = p.daily_checkins || [];
 
@@ -98,16 +108,10 @@ const clinicalController = {
                 let hasSubmittedTodayOrYesterday = false;
 
                 if (checkins.length > 0) {
-                    // Normalize the dates to calculate distinct consecutive days
                     const uniqueDates = [...new Set(checkins.map(c => c.checkin_date))].map(d => new Date(d));
+                    const today = new Date(); today.setHours(0, 0, 0, 0);
+                    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
 
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-
-                    const yesterday = new Date(today);
-                    yesterday.setDate(yesterday.getDate() - 1);
-
-                    // Track the last check-in date text context
                     const dynamicLastDate = uniqueDates[0];
                     const lastDateTime = dynamicLastDate.getTime();
 
@@ -121,37 +125,36 @@ const clinicalController = {
                         lastCheckinText = dynamicLastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     }
 
-                    // Loop through dates sequentially to calculate current continuous consecutive days streak
                     if (hasSubmittedTodayOrYesterday) {
                         currentStreak = 1;
                         let expectedDate = new Date(dynamicLastDate);
 
                         for (let i = 1; i < uniqueDates.length; i++) {
                             expectedDate.setDate(expectedDate.getDate() - 1);
-
                             if (uniqueDates[i].getTime() === expectedDate.getTime()) {
                                 currentStreak++;
-                            } else {
-                                break; // Streak broken
-                            }
+                            } else { break; }
                         }
                     }
                 }
 
+                // Extract organization name context
+                const organisationName = p.patient_enrolments?.[0]?.organisations?.name || "Thyroid Disease";
+
                 return {
                     id: p.id,
                     name: p.full_name || 'Anonymous Patient',
-                    condition: p.intake_forms?.[0]?.condition === 'hashimotos'
-                        ? "Hashimoto's"
-                        : p.intake_forms?.[0]?.condition || 'Thyroid disease',
+                    // Use organization name as a subtitle fallback if condition string matches blank values
+                    condition:p.intake_forms?.[0]?.condition,
+                    organisation : organisationName,
                     enrollDate: new Date(p.created_at).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric'
                     }),
-                    streak: String(currentStreak), // 🌟 Dynamic calculation from daily_checkins!
-                    lastCheckin: lastCheckinText,  // 🌟 Dynamic status text context
-                    risk: currentStreak > 0 ? "Green" : "Amber", // Soft dynamic risk triage rules
+                    streak: String(currentStreak), 
+                    lastCheckin: lastCheckinText,  
+                    risk: currentStreak > 0 ? "Green" : "Amber", 
                     preApptStatus: "none"
                 };
             });
