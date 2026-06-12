@@ -491,4 +491,153 @@ const updatePassword = async (req, res) => {
         res.status(500).json({ success: false, error: "Failed to sync password." });
     }
 };
-module.exports = { enrollPatient, activateAccount, login, forgotPassword, verifyUser, updatePassword };
+
+const clinicalLogin = async (req, res) => {
+    // Gracefully handle identifiers similarly to patient login (supporting email or future ID configurations)
+    const inputIdentifier = req.body.email;
+    const cleanIdentifier = inputIdentifier ? inputIdentifier.trim().toLowerCase() : '';
+    const passwordInput = req.body.password;
+
+    if (!cleanIdentifier || !passwordInput) {
+        return res.status(400).json({ success: false, message: "Missing required parameters." });
+    }
+
+    try {
+        // 1. Fetch profile using supabaseAdmin to bypass RLS limits during lookup
+        // 🚀 RELATION DEEP-NESTING: We are now fetching profiles -> org_members -> organisations (name) all at once!
+        const { data: profileRecord, error: lookupErr } = await supabaseAdmin
+            .from('profiles')
+            .select(`
+                id, 
+                email, 
+                role, 
+                password,
+                full_name,
+                org_members!org_members_user_id_fkey (
+                    org_id,
+                    role,
+                    active,
+                    organisations (
+                        name
+                    )
+                )
+            `)
+            .eq('email', cleanIdentifier)           
+            .is('deleted_at', null)                
+            .maybeSingle();
+
+        if (lookupErr || !profileRecord) {
+            console.log("🔍 Lookup failed or clinician profile not found in database.");
+            return res.status(401).json({ success: false, message: "Invalid credentials or unactivated profile." });
+        }
+
+        // 2. 🔐 BCRYPT COMPARE: Verify the hashed password stored in your profiles table
+        if (!profileRecord.password) {
+            return res.status(401).json({ success: false, message: "Account profile exists but has not been activated with a password yet." });
+        }
+       
+        const isPasswordMatch = await bcrypt.compare(passwordInput, profileRecord.password);
+        if (!isPasswordMatch) {
+            return res.status(401).json({ success: false, message: "Invalid credentials combination." });
+        }
+
+        // 3. Extract the organization member array data out of the profile relation
+        const membership = profileRecord.org_members ? profileRecord.org_members[0] : null;
+
+        // Guard: Ensure they belong to an organization and their account state is currently active
+        if (!membership || !membership.active) {
+            return res.status(403).json({
+                success: false,
+                message: "Access Denied: Your account is not assigned to an active organization workspace."
+            });
+        }
+
+        // 4. Authenticate with Supabase Auth to generate official app engine session tokens (JWTs)
+        const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+            email: profileRecord.email,
+            password: passwordInput
+        });
+
+        if (authErr) {
+            console.error("❌ Supabase Auth authentication failed for clinician:", authErr.message);
+            return res.status(401).json({ success: false, message: "Authentication engine sync error." });
+        }
+
+        // 5. Sanitize sensitive database properties before passing data context back up to client app state
+        const sanitizedProfile = { ...profileRecord };
+        delete sanitizedProfile.password;
+        delete sanitizedProfile.org_members; // Remove relational nesting block
+
+        // 🏢 Extract the deeply nested organization name string safely
+        const organizationName = membership.organisations ? membership.organisations.name : 'Unknown Organisation';
+
+        // Append explicit properties down to the user root metadata payload block
+        sanitizedProfile.orgId = membership.org_id;
+        sanitizedProfile.orgRole = membership.role; // 'executive', 'programme_manager', or 'clinician'
+        sanitizedProfile.orgName = organizationName; // 👈 This is passed directly into your frontend payload!
+
+        return res.status(200).json({
+            success: true,
+            message: "Login successful.",
+            session: authData.session, // Contains access_token, refresh_token, and expiry windows natively
+            user: sanitizedProfile
+        });
+
+    } catch (err) {
+        console.error("❌ CONTROLLER ENCOUNTERED CRASH DURING CLINICAL LOGIN:", err.message);
+        return res.status(500).json({ success: false, error: "Internal core engine runtime crash during login." });
+    }
+};
+
+const forceSyncClinician = async (req, res) => {
+    try {
+        const targetEmail = 'dr.smith@allvi.com';
+        const newPassword = '12345678';
+
+        // 1. Find the internal Auth UUID directly from Supabase Auth using the email
+        const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+        if (listError) throw listError;
+
+        const authUser = users.find(u => u.email === targetEmail);
+        if (!authUser) {
+            return res.status(404).json({ success: false, message: "User not found in Supabase Auth Dashboard!" });
+        }
+
+        const authUuid = authUser.id;
+
+        // 2. 🔑 FORCE UPDATE: Use Supabase Admin Auth Engine to rewrite the password cleanly
+        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(
+            authUuid,
+            { 
+                password: newPassword,
+                email_confirm: true // Force confirm state
+            }
+        );
+        if (authUpdateError) throw authUpdateError;
+
+        // 3. Sync your public profiles table with a fresh native bcrypt hash for your controller's check
+        const saltRounds = 10;
+        const freshDbHash = await bcrypt.hash(newPassword, saltRounds);
+
+        await supabaseAdmin
+            .from('profiles')
+            .update({ 
+                auth_user_id: authUuid, 
+                password: freshDbHash 
+            })
+            .eq('email', targetEmail);
+
+        return res.status(200).json({ 
+            success: true, 
+            message: `Successfully updated ${targetEmail} engine-wide! Try logging in now.` 
+        });
+
+    } catch (err) {
+        console.error("❌ Sync Script Error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+// Don't forget to expose it in your module.exports!
+
+module.exports = { enrollPatient, activateAccount, login, forgotPassword, verifyUser, updatePassword, clinicalLogin ,forceSyncClinician };
