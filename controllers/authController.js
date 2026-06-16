@@ -8,6 +8,8 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 
+
+
 const enrollPatient = async (req, res) => {
     console.log("📥 Incoming Enrollment Payload:", req.body);
     const { fullName, email, primaryCondition, referringClinician, treatingClinicianEmail } = req.body;
